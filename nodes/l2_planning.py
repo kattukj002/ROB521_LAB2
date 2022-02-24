@@ -516,8 +516,8 @@ def main():
     nodes = path_planner.rrt_planning()
 
     #add nodes to window to visualize RRT planner
-    # for node in nodes:
-    #     self.window.add_point(node)
+    for node in nodes:
+        self.window.add_point(node)
 
     node_path_metric = np.hstack(path_planner.recover_path())
 
