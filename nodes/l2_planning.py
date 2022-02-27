@@ -146,12 +146,13 @@ class PathPlanner:
         
         current_point = Node(node_i.point, node_i.parent_id, node_i.cost)
 
-        goal_reached = False
+        point = False
 
         curr_iteration_num = 0
 
-        while (not goal_reached):
+        while (not point_s_reached):
 
+            #print every 10000 iterations
             if curr_iteration_num % 10000 == 0:
                 print("This is current iteration: " + str(curr_iteration_num))
                 print("This is current point: ")
@@ -167,7 +168,7 @@ class PathPlanner:
                 print(current_point.point)
                 print("This is goal: ")
                 print(point_s)
-                goal_reached = True
+                point_s_reached = True
                 break
 
             #get v, omega needed to get to point_s
@@ -213,11 +214,11 @@ class PathPlanner:
 
             #positive constant gain terms
             k1 = 0.1
-            k2 = 0.45
+            k2 = 0.65
             k3 = 0.1   #makes the values change more
 
             #desired end point values
-            v_r = 0.55
+            v_r = 1
             omega_r = 0
             theta_r = 0
 
@@ -230,34 +231,13 @@ class PathPlanner:
             curr_robot_x = node_i.point[0]
             curr_robot_y = node_i.point[1]
 
-            # print("This is curr_robot_angle: ")
-            # print(curr_robot_angle)
-            # print("This is curr_robot_x: ")
-            # print(curr_robot_x)
-            # print("This is curr_robot_y: ")
-            # print(curr_robot_y)
-
             goal_robot_x = point_s[0]
             goal_robot_y = point_s[1]
-
-            # print("This is goal_robot_x")
-            # print(goal_robot_x)
-            # print("This is goal_robot_y")
-            # print(goal_robot_y)
 
             R = np.array([[np.cos(curr_robot_angle)[0], -np.sin(curr_robot_angle)[0]], [np.sin(curr_robot_angle)[0], np.cos(curr_robot_angle)[0]]])
 
             curr_robot_position = np.array([[curr_robot_x][0], [curr_robot_y][0]])
             goal_robot_position = np.array([[goal_robot_x], [goal_robot_y]])
-
-            # print("This is curr_robot_position")
-            # print(curr_robot_position)
-            # print("This is shape of curr_robot_position")
-            # print(curr_robot_position.shape)
-            # print("This is goal_robot_position")
-            # print(goal_robot_position)
-            # print("This is shape of goal_robot_position")
-            # print(goal_robot_position.shape)
 
 
             #algorithm stuff
@@ -268,34 +248,14 @@ class PathPlanner:
             lower_delta = np.array([[d], [0]])
             K = np.diag([k1, k2])
 
-            # print("This is R: ")
-            # print(R)
-            # print("This is shape of R: ")
-            # print(R.shape)
-            # print("This is position difference: ")
-            # print(goal_robot_position - curr_robot_position)
-            # print("This is shape of position difference: ")
-            # print((goal_robot_position - curr_robot_position).shape)
-
-
             position_error = np.matmul(R, goal_robot_position - curr_robot_position)
 
             RHS = -np.matmul(K, np.tanh(position_error - lower_delta))
 
             velocities = np.matmul(inv(upper_delta), RHS)
 
-            # print("This is velocities: ")
-            # print(velocities)
-            # print("This is shape of velocities")
-            # print(velocities.shape)
-
             v = velocities[0]
             omega = velocities[1]
-
-            # print("This is v: ")
-            # print(v)
-            # print("This is omega")
-            # print(omega)
 
         if v > self.vel_max:
             v = self.vel_max
@@ -392,8 +352,10 @@ class PathPlanner:
         #Settings
         #node is a 3 by 1 node
         #point is a 2 by 1 point
+        node_rewiring_trajectory = self.simulate_trajectory(self.nodes[node_i, point_f])
+
         print("TO DO: Implement a way to connect two already existing nodes (for rewiring).")
-        return np.zeros((3, self.num_substeps))
+        return node_rewiring_trajectory 
     
     def cost_to_come(self, trajectory_o):
         #The cost to get to a node from lavalle 
@@ -516,8 +478,8 @@ def main():
     nodes = path_planner.rrt_planning()
 
     #add nodes to window to visualize RRT planner
-    for node in nodes:
-        self.window.add_point(node)
+    # for node in nodes:
+    #     path_planner.window.add_point(node)
 
     node_path_metric = np.hstack(path_planner.recover_path())
 

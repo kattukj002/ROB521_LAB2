@@ -15,7 +15,16 @@ from visualization_msgs.msg import Marker
 
 # ros and se2 conversion utils
 import utils
+import matplotlib.image as mpimg
+from skimage.draw import circle
 
+# """
+# def load_map(filename):
+#     im = mpimg.imread("../maps/" + filename)
+#     im_np = np.array(im)  #Whitespace is true, black is false
+#     #im_np = np.logical_not(im_np)    
+#     return im_np
+# """
 
 TRANS_GOAL_TOL = .1  # m, tolerance to consider a goal complete
 ROT_GOAL_TOL = .3  # rad, tolerance to consider a goal complete
@@ -34,8 +43,12 @@ PATH_NAME = 'path.npy'  # saved path from l2_planning.py, should be in the same 
 # TEMP_HARDCODE_PATH = [[2, 0, 0], [2.75, -1, -np.pi/2], [2.75, -4, -np.pi/2], [2, -4.4, np.pi]]  # almost collision-free
 TEMP_HARDCODE_PATH = [[2, -.5, 0], [2.4, -1, -np.pi/2], [2.45, -3.5, -np.pi/2], [1.5, -4.4, np.pi]]  # some possible collisions
 
+#print(OccupancyGrid)
 
 class PathFollower():
+    #map_filename = "willowgarageworld_05res.png"
+    #self.occupancy_map = load_map(map_filename)
+
     def __init__(self):
         # time full path
         self.path_follow_start_time = rospy.Time.now()
@@ -60,6 +73,8 @@ class PathFollower():
         self.map_resolution = round(map.info.resolution, 5)
         self.map_origin = -utils.se2_pose_from_pose(map.info.origin)  # negative because of weird way origin is stored
         self.map_nonzero_idxes = np.argwhere(self.map_np)
+        #print(OccupancyGrid)
+        print(map)
 
         # collisions
         self.collision_radius_pix = COLLISION_RADIUS / self.map_resolution
@@ -113,50 +128,84 @@ class PathFollower():
         rospy.on_shutdown(self.stop_robot_on_shutdown)
         self.follow_path()
 
+    
+
     def follow_path(self):
         while not rospy.is_shutdown():
             # timing for debugging...loop time should be less than 1/CONTROL_RATE
             tic = rospy.Time.now()
+            
+            for i in range(len(TEMP_HARDCODE_PATH))
+                self.update_pose()
+                self.check_and_update_goal()
 
-            self.update_pose()
-            self.check_and_update_goal()
+                # start trajectory rollout algorithm
+                local_paths = np.zeros([self.horizon_timesteps + 1, self.num_opts, 3])
+                local_paths[0] = np.atleast_2d(self.pose_in_map_np).repeat(self.num_opts, axis=0)
 
-            # start trajectory rollout algorithm
-            local_paths = np.zeros([self.horizon_timesteps + 1, self.num_opts, 3])
-            local_paths[0] = np.atleast_2d(self.pose_in_map_np).repeat(self.num_opts, axis=0)
+                print("TO DO: Propogate the trajectory forward, storing the resulting points in local_paths!")
+                for t in range(1, self.horizon_timesteps + 1):
+                    # propogate trajectory forward, assuming perfect control of velocity and no dynamic effects
 
-            print("TO DO: Propogate the trajectory forward, storing the resulting points in local_paths!")
-            for t in range(1, self.horizon_timesteps + 1):
-                # propogate trajectory forward, assuming perfect control of velocity and no dynamic effects
-                pass
-
-            # check all trajectory points for collisions
-            # first find the closest collision point in the map to each local path point
-            local_paths_pixels = (self.map_origin[:2] + local_paths[:, :, :2]) / self.map_resolution
-            valid_opts = range(self.num_opts)
-            local_paths_lowest_collision_dist = np.ones(self.num_opts) * 50
-
-            print("TO DO: Check the points in local_path_pixels for collisions")
-            for opt in range(local_paths_pixels.shape[1]):
-                for timestep in range(local_paths_pixels.shape[0]):
+                    #iterate over all possible v,omega combinations
+                    for combination_num in range(self.num_opts):
+                        vel = all_opts(combination_num,0)
+                        rot_vel = all_opts(combination_num,1)
+                        
+                        if rot_vel == 0:
+                            x = vel*math.cos(TEMP_HARDCODE_PATH[i,0])*(INTEGRATION_DT*t) + TEMP_HARDCODE_PATH[i,0]
+                            y = vel*math.sin(TEMP_HARDCODE_PATH[i,1])*(INTEGRATION_DT*t) + TEMP_HARDCODE_PATH[i,1]
+                            theta = TEMP_HARDCODE_PATH[i,2]
+                        else:
+                            x = (vel/rot_vel) * math.sin(rot_vel*(INTEGRATION_DT*t)) + TEMP_HARDCODE_PATH[i,0]
+                            y = (vel/rot_vel) * (1 - math.cos(rot_vel*(INTEGRATION_DT*t))) + TEMP_HARDCODE_PATH[i,1]
+                            theta =  rot_vel*(INTEGRATION_DT*t) + TEMP_HARDCODE_PATH[i,2]
+                                
+                        local_paths(t,combination_num,0) = x
+                        local_paths(t,combination_num,1) = y
+                        local_paths(t,combination_num,2) = theta
                     pass
 
-            # remove trajectories that were deemed to have collisions
-            print("TO DO: Remove trajectories with collisions!")
+                # check all trajectory points for collisions
+                # first find the closest collision point in the map to each local path point
+                local_paths_pixels = (self.map_origin[:2] + local_paths[:, :, :2]) / self.map_resolution
+                valid_opts = range(self.num_opts)
+                local_paths_lowest_collision_dist = np.ones(self.num_opts) * 50
 
-            # calculate final cost and choose best option
-            print("TO DO: Calculate the final cost and choose the best control option!")
-            final_cost = np.zeros(self.num_opts)
-            if final_cost.size == 0:  # hardcoded recovery if all options have collision
-                control = [-.1, 0]
-            else:
-                best_opt = valid_opts[final_cost.argmin()]
-                control = self.all_opts[best_opt]
-                self.local_path_pub.publish(utils.se2_pose_list_to_path(local_paths[:, best_opt], 'map'))
+                #Matrix to store collisions
+                check_collision = np.zeros(self.num_opts,self.horizon_timesteps)
 
-            # send command to robot
-            self.cmd_pub.publish(utils.unicyle_vel_to_twist(control))
+                print("TO DO: Check the points in local_path_pixels for collisions")
+                for opt in range(local_paths_pixels.shape[1]):
+                    for timestep in range(local_paths_pixels.shape[0]):
+                        rr, cc = circle(local_paths_pixels[timestep,opt,0], local_path_pixels[timestep,opt,1], COLLISION_RADIUS)
+                        
+                        for pixel_i in range(len(rr)):
+                            if self.map[rr(pixel_i), cc(pixel_i)] == 1:
+                                #store the index opt and timestep. 
+                                final_cost(opt) = Inf
+                            pass
 
+                # remove trajectories that were deemed to have collisions
+                print("TO DO: Remove trajectories with collisions!")
+
+            
+
+                # calculate final cost and choose best option
+                print("TO DO: Calculate the final cost and choose the best control option!")
+                final_cost = np.zeros(self.num_opts)
+                final_cost = (abs(self.all_opts[:,1]))
+
+                if final_cost.size == 0:  # hardcoded recovery if all options have collision
+                    control = [-.1, 0]
+                else:
+                    best_opt = valid_opts[final_cost.argmin()]
+                    control = self.all_opts[best_opt]
+                    self.local_path_pub.publish(utils.se2_pose_list_to_path(local_paths[:, best_opt], 'map'))
+
+                # send command to robot
+                self.cmd_pub.publish(utils.unicyle_vel_to_twist(control))
+            
             # uncomment out for debugging if necessary
             # print("Selected control: {control}, Loop time: {time}, Max time: {max_time}".format(
             #     control=control, time=(rospy.Time.now() - tic).to_sec(), max_time=1/CONTROL_RATE))
@@ -204,3 +253,12 @@ if __name__ == '__main__':
         pf = PathFollower()
     except rospy.ROSInterruptException:
         pass
+
+
+
+
+
+
+
+            
+
